@@ -20,10 +20,10 @@ router.post(
 //  * @desc    Get test cases by JIRA ticket key
 //  * @access  Public
 //  */
-// router.get(
-//     '/testcases/:ticketKey',
-//     testCaseController.getTestCasesByTicket
-// );
+router.get(
+    '/testcases/:ticketKey',
+    testCaseController.getTestCasesByTicket
+);
 
 // /**
 //  * @route   GET /api/testcases
@@ -40,10 +40,10 @@ router.post(
 //  * @desc    Get generation history
 //  * @access  Public
 //  */
-// router.get(
-//     '/history',
-//     testCaseController.getGenerationHistory
-// );
+router.get(
+    '/history',
+    testCaseController.getGenerationHistory
+);
 
 // /**
 //  * @route   PATCH /api/testcases/:id/status

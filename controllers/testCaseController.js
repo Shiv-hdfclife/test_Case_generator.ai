@@ -74,31 +74,31 @@ exports.generateTestCases = async (req, res) => {
         console.log("Generated Test cases:", result);
 
         // Step 5: Save to database
-        // const testCaseDoc = new TestCase({
-        //     jiraTicketId: normalizedData.ticketId,
-        //     jiraTicketKey: normalizedData.ticketKey,
-        //     summary: normalizedData.summary,
-        //     description: normalizedData.description,
-        //     testCases: result.testCases,
-        //     generationTime: result.generationTime,
-        //     status: 'generated'
-        // });
+        const testCaseDoc = new TestCase({
+            jiraTicketId: normalizedData.ticketId,
+            jiraTicketKey: normalizedData.ticketKey,
+            summary: normalizedData.summary,
+            description: normalizedData.description,
+            testCases: result.testCases,
+            generationTime: result.generationTime,
+            status: 'generated'
+        });
 
-        // await testCaseDoc.save();
+        await testCaseDoc.save();
 
         // Step 6: Save generation history
-        // const history = new GenerationHistory({
-        //     jiraTicketKey: normalizedData.ticketKey,
-        //     requestPayload: { jiraTicketKey, model, useReasoning },
-        //     responsePayload: { testCasesCount: result.testCases.length },
-        //     modelUsed: result.modelUsed,
-        //     generationTime: Date.now() - startTime,
-        //     status: 'success',
-        //     userAgent: req.headers['user-agent'],
-        //     ipAddress: req.ip
-        // });
+        const history = new GenerationHistory({
+            jiraTicketKey: normalizedData.ticketKey,
+            requestPayload: { jiraTicketKey, model, useReasoning },
+            responsePayload: { testCasesCount: result.testCases.length },
+            modelUsed: result.modelUsed,
+            generationTime: Date.now() - startTime,
+            status: 'success',
+            userAgent: req.headers['user-agent'],
+            ipAddress: req.ip
+        });
 
-        // await history.save();
+        await history.save();
 
         // Step 7: Return response
         res.status(200).json({
@@ -125,20 +125,20 @@ exports.generateTestCases = async (req, res) => {
         console.error('Error generating test cases:', error);
 
         // Save error to history
-        // try {
-        // const history = new GenerationHistory({
-        //     jiraTicketKey: req.body.jiraTicketKey || 'unknown',
-        //     requestPayload: req.body,
-        //     status: 'failed',
-        //     errorMessage: error.message,
-        //     generationTime: Date.now() - startTime,
-        //     userAgent: req.headers['user-agent'],
-        //     ipAddress: req.ip
-        // });
-        // await history.save();
-        // } catch (historyError) {
-        //     console.error('Error saving history:', historyError);
-        // }
+        try {
+            const history = new GenerationHistory({
+                jiraTicketKey: req.body.jiraTicketKey || 'unknown',
+                requestPayload: req.body,
+                status: 'failed',
+                errorMessage: error.message,
+                generationTime: Date.now() - startTime,
+                userAgent: req.headers['user-agent'],
+                ipAddress: req.ip
+            });
+            await history.save();
+        } catch (historyError) {
+            console.error('Error saving history:', historyError);
+        }
         res.status(500).json({
             success: false,
             message: error.message || 'Failed to generate test cases',
@@ -190,34 +190,34 @@ exports.healthCheck = async (req, res) => {
  * Get test cases by JIRA ticket key
  * GET /api/testcases/:ticketKey
  */
-// exports.getTestCasesByTicket = async (req, res) => {
-//     try {
-//         const { ticketKey } = req.params;
+exports.getTestCasesByTicket = async (req, res) => {
+    try {
+        const { ticketKey } = req.params;
 
-//         const testCases = await TestCase.find({ jiraTicketKey: ticketKey })
-//             .sort({ createdAt: -1 })
-//             .limit(10);
+        const testCases = await TestCase.find({ jiraTicketKey: ticketKey })
+            .sort({ createdAt: -1 })
+            .limit(10);
 
-//         if (!testCases || testCases.length === 0) {
-//             return res.status(404).json({
-//                 success: false,
-//                 message: 'No test cases found for this ticket'
-//             });
-//         }
+        if (!testCases || testCases.length === 0) {
+            return res.status(404).json({
+                success: false,
+                message: 'No test cases found for this ticket'
+            });
+        }
 
-//         res.status(200).json({
-//             success: true,
-//             data: testCases
-//         });
+        res.status(200).json({
+            success: true,
+            data: testCases
+        });
 
-//     } catch (error) {
-//         console.error('Error fetching test cases:', error);
-//         res.status(500).json({
-//             success: false,
-//             message: 'Failed to fetch test cases'
-//         });
-//     }
-// };
+    } catch (error) {
+        console.error('Error fetching test cases:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to fetch test cases'
+        });
+    }
+};
 
 /**
  * Get all test cases with pagination
@@ -263,40 +263,40 @@ exports.healthCheck = async (req, res) => {
  * Get generation history
  * GET /api/history?page=1&limit=20
  */
-// exports.getGenerationHistory = async (req, res) => {
-//     try {
-//         const page = parseInt(req.query.page) || 1;
-//         const limit = parseInt(req.query.limit) || 20;
-//         const skip = (page - 1) * limit;
+exports.getGenerationHistory = async (req, res) => {
+    try {
+        const page = parseInt(req.query.page) || 1;
+        const limit = parseInt(req.query.limit) || 20;
+        const skip = (page - 1) * limit;
 
-//         const history = await GenerationHistory.find()
-//             .sort({ createdAt: -1 })
-//             .skip(skip)
-//             .limit(limit);
+        const history = await GenerationHistory.find()
+            .sort({ createdAt: -1 })
+            .skip(skip)
+            .limit(limit);
 
-//         const total = await GenerationHistory.countDocuments();
+        const total = await GenerationHistory.countDocuments();
 
-//         res.status(200).json({
-//             success: true,
-//             data: {
-//                 history,
-//                 pagination: {
-//                     currentPage: page,
-//                     totalPages: Math.ceil(total / limit),
-//                     totalItems: total,
-//                     itemsPerPage: limit
-//                 }
-//             }
-//         });
+        res.status(200).json({
+            success: true,
+            data: {
+                history,
+                pagination: {
+                    currentPage: page,
+                    totalPages: Math.ceil(total / limit),
+                    totalItems: total,
+                    itemsPerPage: limit
+                }
+            }
+        });
 
-//     } catch (error) {
-//         console.error('Error fetching history:', error);
-//         res.status(500).json({
-//             success: false,
-//             message: 'Failed to fetch generation history'
-//         });
-//     }
-// };
+    } catch (error) {
+        console.error('Error fetching history:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to fetch generation history'
+        });
+    }
+};
 
 /**
  * Update test case status

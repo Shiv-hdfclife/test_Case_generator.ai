@@ -10,33 +10,18 @@ const testCaseSchema = new mongoose.Schema({
         type: String,
         required: true
     },
-    projectKey: {
-        type: String,
-        required: true
-    },
     summary: {
         type: String,
         required: true
     },
     description: String,
     testCases: [{
-        testCaseId: String,
-        title: String,
-        description: String,
-        preconditions: String,
-        steps: [{
-            stepNumber: Number,
-            action: String,
-            expectedResult: String
-        }],
-        priority: {
-            type: String,
-            enum: ['High', 'Medium', 'Low'],
-            default: 'Medium'
-        },
+        TestCaseId: String,
+        Test: String,
+        Expected_Result: String,
         type: {
             type: String,
-            enum: ['Functional', 'Integration', 'UI', 'API', 'Performance', 'Security'],
+            enum: ['Positive', 'Negative', 'Boundary'],
             default: 'Functional'
         }
     }],
