@@ -2,6 +2,7 @@ const jiraService = require('../services/jiraService');
 const ollamaService = require('../services/ollamaService');
 const TestCase = require('../models/TestCase');
 const GenerationHistory = require('../models/GenerationHistory');
+const mongoose = require('mongoose');
 const { parseGitHubPRLink } = require('../utils/prLinkParser');
 const { buildPRContext } = require('../services/prContext.service');
 const { cleanPRContext } = require('../services/prContextCleaner.service');
@@ -118,10 +119,14 @@ exports.generateTestCases = async (req, res) => {
         const result = await ollamaService.generateTestCases(normalizedData, allPRAnalyses, model);
         console.log(`✅ Generated ${result.testCases.length} test cases\n`);
 
+        // Generate unique ID for linking TestCase and GenerationHistory
+        const generationId = new mongoose.Types.ObjectId().toString();
+
         // Step 5: Save to database
         const testCaseDoc = new TestCase({
+            generationId: generationId,
             jiraTicketId: normalizedData.ticketId,
-            jiraTicketKey: normalizedData.ticketKey,
+            jiraTicketKey: normalizedData.ticketKey,    
             summary: normalizedData.summary,
             description: normalizedData.description,
             testCases: result.testCases,
@@ -133,6 +138,7 @@ exports.generateTestCases = async (req, res) => {
 
         // Step 6: Save generation history
         const history = new GenerationHistory({
+            generationId: generationId,
             jiraTicketKey: normalizedData.ticketKey,
             requestPayload: { jiraTicketKey, model, useReasoning },
             responsePayload: { testCasesCount: result.testCases.length },
@@ -172,6 +178,7 @@ exports.generateTestCases = async (req, res) => {
         // Save error to history
         try {
             const history = new GenerationHistory({
+                generationId: new mongoose.Types.ObjectId().toString(),
                 jiraTicketKey: req.body.jiraTicketKey || 'unknown',
                 requestPayload: req.body,
                 status: 'failed',
@@ -239,7 +246,7 @@ exports.getTestCasesByTicket = async (req, res) => {
     try {
         const { ticketKey } = req.params;
 
-        const testCases = await TestCase.find({ jiraTicketKey: ticketKey })
+        const testCases = await TestCase.find({ generationId: ticketKey })
             .sort({ createdAt: -1 })
             .limit(10);
 

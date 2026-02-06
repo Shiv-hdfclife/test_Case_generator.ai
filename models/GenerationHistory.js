@@ -1,6 +1,12 @@
 const mongoose = require('mongoose');
 
 const generationHistorySchema = new mongoose.Schema({
+    generationId: {
+        type: String,
+        required: true,
+        unique: true,
+        index: true
+    },
     jiraTicketKey: {
         type: String,
         required: true

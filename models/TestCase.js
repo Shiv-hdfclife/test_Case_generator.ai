@@ -1,6 +1,12 @@
 const mongoose = require('mongoose');
 
 const testCaseSchema = new mongoose.Schema({
+    generationId: {
+        type: String,
+        required: true,
+        unique: true,
+        index: true
+    },
     jiraTicketId: {
         type: String,
         required: true,
