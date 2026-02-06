@@ -54,7 +54,72 @@ class JiraService {
             description: this.extractDescription(fields.description),
             issueType: fields.issuetype?.name || '',
             status: fields.status?.name || '',
+            prLinks: this.extractPRLinks(fields.description)
         };
+    }
+
+    /**
+     * Extract PR links from JIRA description
+     * @param {Object} description - JIRA description object  
+     * @returns {Array} - Array of PR links found in description
+     */
+    extractPRLinks(description) {
+        if (!description) return [];
+        
+        const prLinks = [];
+        
+        // If description is a string, use regex
+        if (typeof description === 'string') {
+            const prLinkPattern = /https?:\/\/github\.com\/[\w-]+\/[\w-]+\/pull\/\d+/gi;
+            const matches = description.match(prLinkPattern);
+            return matches ? [...new Set(matches)] : [];
+        }
+        
+        // If description is ADF format with content array
+        if (description.content && Array.isArray(description.content)) {
+            this.extractPRLinksFromADF(description.content, prLinks);
+        }
+        
+        // Remove duplicates
+        const uniquePRLinks = [...new Set(prLinks)];
+        
+        console.log(`Extracted ${uniquePRLinks.length} PR link(s) from JIRA description:`, uniquePRLinks);
+        
+        return uniquePRLinks;
+    }
+    
+    /**
+     * Recursively extract PR links from ADF content
+     * @param {Array} content - ADF content array
+     * @param {Array} prLinks - Array to collect PR links
+     */
+    extractPRLinksFromADF(content, prLinks) {
+        if (!Array.isArray(content)) return;
+        
+        for (const node of content) {
+            // Check if this is an inlineCard with a GitHub PR URL
+            if (node.type === 'inlineCard' && node.attrs && node.attrs.url) {
+                const url = node.attrs.url;
+                // Check if it's a GitHub PR link
+                if (/https?:\/\/github\.com\/[\w-]+\/[\w-]+\/pull\/\d+/i.test(url)) {
+                    prLinks.push(url);
+                }
+            }
+            
+            // Check text content as fallback
+            if (node.type === 'text' && node.text) {
+                const prLinkPattern = /https?:\/\/github\.com\/[\w-]+\/[\w-]+\/pull\/\d+/gi;
+                const matches = node.text.match(prLinkPattern);
+                if (matches) {
+                    prLinks.push(...matches);
+                }
+            }
+            
+            // Recursively search nested content
+            if (node.content && Array.isArray(node.content)) {
+                this.extractPRLinksFromADF(node.content, prLinks);
+            }
+        }
     }
 
     /**

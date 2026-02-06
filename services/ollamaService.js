@@ -10,12 +10,13 @@ class OllamaService {
     /**
      * Generate test cases using DeepSeek Coder
      * @param {Object} jiraData - Normalized JIRA ticket data
+     * @param {Array} prAnalyses - Array of PR analysis objects
      * @param {string} model - Model to use (optional)
      * @returns {Promise<Object>} - Generated test cases
      */
-    async generateTestCases(jiraData, aiResponse, model = null) {
+    async generateTestCases(jiraData, prAnalyses, model = null) {
         const selectedModel = model || this.coderModel;
-        const prompt = this.buildPrompt(jiraData, aiResponse);
+        const prompt = this.buildPrompt(jiraData, prAnalyses);
 
         try {
             const startTime = Date.now();
@@ -93,10 +94,29 @@ Provide:
     /**
      * Build prompt for test case generation
      * @param {Object} jiraData - Normalized JIRA ticket data
-     * @param {string} aiResponse - PR context and code changes
+     * @param {Array} prAnalyses - Array of PR analysis objects with PR context and code changes
      * @returns {string} - Formatted prompt
      */
-    buildPrompt(jiraData, aiResponse) {
+    buildPrompt(jiraData, prAnalyses) {
+        // Format PR contexts
+        let prContextSection = '';
+        
+        if (prAnalyses && Array.isArray(prAnalyses) && prAnalyses.length > 0) {
+            prContextSection = '**PR Context (Code Changes):**\n\n';
+            
+            prAnalyses.forEach((prAnalysis, index) => {
+                if (prAnalysis.error) {
+                    prContextSection += `PR #${index + 1} (${prAnalysis.prLink}):\n`;
+                    prContextSection += `ERROR: ${prAnalysis.error}\n\n`;
+                } else {
+                    prContextSection += `PR #${index + 1} - ${prAnalysis.owner}/${prAnalysis.repo}/pull/${prAnalysis.prNumber}:\n`;
+                    prContextSection += `${JSON.stringify(prAnalysis.analysis, null, 2)}\n\n`;
+                }
+            });
+        } else {
+            prContextSection = '**PR Context (Code Changes):**\nNo PR context available\n\n';
+        }
+
         return `You are a Senior QA Engineer generating System Integration Testing (SIT) test cases.
 
 GENERATE COMPREHENSIVE BUT NON-REPETITIVE test cases from the JIRA ticket and PR context.
@@ -109,6 +129,7 @@ CRITICAL RULES:
 5. Each validation rule gets ONE Positive, ONE Negative, and ONE Boundary test (if applicable)
 6. Be thorough but avoid redundancy
 7. Maximum 15-20 test cases total
+8. When multiple PRs are provided, consider all changes together
 
 TEST CASE CATEGORIES:
 - Positive: Valid inputs that should succeed
@@ -120,8 +141,7 @@ TEST CASE CATEGORIES:
 - Summary: ${jiraData.summary}
 - Description: ${jiraData.description}
 
-**PR Context (Code Changes):**
-${aiResponse || 'No PR context available'}
+${prContextSection}
 
 
 OUTPUT FORMAT (strictly follow):

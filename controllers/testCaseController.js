@@ -33,45 +33,90 @@ exports.generateTestCases = async (req, res) => {
 
         // Step 2: Normalize JIRA data
         const normalizedData = jiraService.normalizeTicketData(jiraTicket);
-        console.log("Normalized data:", normalizedData);
 
-        // Step3: PR data call
+        // Step 3: Determine PR links to process
+        // Priority: 1) From JIRA description, 2) From request body
+        const prLinksToProcess = normalizedData.prLinks && normalizedData.prLinks.length > 0 
+            ? normalizedData.prLinks 
+            : (prLinks && Array.isArray(prLinks) ? prLinks : []);
+        
+        if (prLinksToProcess.length > 0) {
+            console.log(`📌 Using PR links from: ${normalizedData.prLinks && normalizedData.prLinks.length > 0 ? 'JIRA description' : 'request body'}`);
+        }
 
-        const prLink = "https://github.com/hdfclife-insurance/inspire-vo-loader-config-service/pull/219";
+        // Step 4: Process multiple PR links
+        let allPRAnalyses = [];
+        
+        if (prLinksToProcess && prLinksToProcess.length > 0) {
+            console.log(`Processing ${prLinksToProcess.length} PR link(s)`);
+            
+            for (let i = 0; i < prLinksToProcess.length; i++) {
+                const prLink = prLinksToProcess[i];
+                console.log(`Processing PR ${i + 1}/${prLinksToProcess.length}: ${prLink}`);
+                
+                try {
+                    // 1. Parse PR link → owner, repo, prNumber
+                    const { owner, repo, prNumber } = parseGitHubPRLink(prLink);
+                    
+                    // 2. Build raw PR context from GitHub
+                    const rawContext = await buildPRContext(owner, repo, prNumber);
+                    
+                    // Log PR Changes (Patch/Diff)
+                    console.log(`\n📝 PR #${prNumber} - Code Changes:`);
+                    console.log('='.repeat(80));
+                    rawContext.files.forEach((file, index) => {
+                        console.log(`\nFile ${index + 1}: ${file.file}`);
+                        console.log(`Status: ${file.status}`);
+                        console.log(`\nPatch (diff):`);
+                        console.log(file.patch || '(No patch available)');
+                        console.log('-'.repeat(80));
+                    });
+                    console.log('');
+                    
+                    // 3. Clean PR context (remove noise, normalize structure)
+                    const cleanedContext = cleanPRContext(rawContext);
+                    
+                    // 4. Analyze PR behavior
+                    const aiResponse = await PrResponse.analyzePRBehavior(cleanedContext);
+                    
+                    console.log(`\n✅ PR #${prNumber} Analysis:`);
+                    console.log(JSON.stringify(aiResponse, null, 2));
+                    console.log('');
+                    
+                    // 5. Add to collection with metadata
+                    allPRAnalyses.push({
+                        prLink: prLink,
+                        prNumber: prNumber,
+                        owner: owner,
+                        repo: repo,
+                        analysis: aiResponse
+                    });
+                } catch (prError) {
+                    console.error(`Error processing PR ${prLink}:`, prError.message);
+                    // Add error entry but continue with other PRs
+                    allPRAnalyses.push({
+                        prLink: prLink,
+                        error: prError.message,
+                        analysis: null
+                    });
+                }
+            }
+        } else {
+            console.log("No PR links found in JIRA description or request body, proceeding without PR context");
+        }
+        
+        console.log(`\n📊 Total PR analyses collected: ${allPRAnalyses.length}\n`);
 
-        // 1. Parse PR link → owner, repo, prNumber
-        const { owner, repo, prNumber } = parseGitHubPRLink(prLink);
-
-
-        // 2. Build raw PR context from GitHub
-        const rawContext = await buildPRContext(owner, repo, prNumber);
-
-        // 3. Clean PR context (remove noise, normalize structure)
-        const cleanedContext = cleanPRContext(rawContext);
-
-
-        // Step 4: V2 Coder Call
-
-
-
-        const aiResponse =
-            await PrResponse.analyzePRBehavior(cleanedContext);
-
-        console.log("Pr respone:", aiResponse);
-
-
-
-
-        // Step 3: Optional reasoning analysis
+        // Step 5: Optional reasoning analysis
         let analysis = null;
         if (useReasoning) {
             analysis = await ollamaService.analyzeWithReasoning(normalizedData);
         }
-        console.log("Entering ollama Service")
-        // Step 4: Generate test cases using Ollama
-        const result = await ollamaService.generateTestCases(normalizedData, aiResponse, model);
-
-        console.log("Generated Test cases:", result);
+        
+        // Step 6: Generate test cases using Ollama with all PR analyses
+        console.log('🤖 Generating test cases with AI model...');
+        const result = await ollamaService.generateTestCases(normalizedData, allPRAnalyses, model);
+        console.log(`✅ Generated ${result.testCases.length} test cases\n`);
 
         // Step 5: Save to database
         const testCaseDoc = new TestCase({
