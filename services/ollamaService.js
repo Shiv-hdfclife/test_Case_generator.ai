@@ -13,9 +13,9 @@ class OllamaService {
      * @param {string} model - Model to use (optional)
      * @returns {Promise<Object>} - Generated test cases
      */
-    async generateTestCases(jiraData, model = null) {
+    async generateTestCases(jiraData, aiResponse, model = null) {
         const selectedModel = model || this.coderModel;
-        const prompt = this.buildPrompt(jiraData);
+        const prompt = this.buildPrompt(jiraData, aiResponse);
 
         try {
             const startTime = Date.now();
@@ -43,7 +43,7 @@ class OllamaService {
 
             return {
                 testCases,
-                // modelUsed: selectedModel,
+                modelUsed: selectedModel,
                 generationTime,
                 rawResponse: generatedText
             };
@@ -93,15 +93,16 @@ Provide:
     /**
      * Build prompt for test case generation
      * @param {Object} jiraData - Normalized JIRA ticket data
+     * @param {string} aiResponse - PR context and code changes
      * @returns {string} - Formatted prompt
      */
-    buildPrompt(jiraData) {
+    buildPrompt(jiraData, aiResponse) {
         return `You are a Senior QA Engineer generating System Integration Testing (SIT) test cases.
 
-GENERATE COMPREHENSIVE BUT NON-REPETITIVE test cases from the JIRA ticket.
+GENERATE COMPREHENSIVE BUT NON-REPETITIVE test cases from the JIRA ticket and PR context.
 
 CRITICAL RULES:
-1. Use ONLY the provided JIRA ticket data
+1. Use ONLY the provided JIRA ticket data and PR context
 2. Each test case MUST be UNIQUE - test a DIFFERENT scenario
 3. Do NOT repeat the same test with minor variations (e.g., don't create 10 separate tests for different special characters)
 4. Group similar invalid scenarios into ONE test (e.g., "mobile number with invalid characters" instead of separate tests for +, -, space, letter)
@@ -118,6 +119,10 @@ TEST CASE CATEGORIES:
 - Ticket: ${jiraData.ticketKey}
 - Summary: ${jiraData.summary}
 - Description: ${jiraData.description}
+
+**PR Context (Code Changes):**
+${aiResponse || 'No PR context available'}
+
 
 OUTPUT FORMAT (strictly follow):
 
@@ -165,16 +170,9 @@ GENERATE TEST CASES NOW:`;
             console.error('Error parsing test cases:', error.message);
             // Return a fallback structure
             return [{
-                testCaseId: 'TC001',
-                title: 'Generated Test Case',
-                description: response.substring(0, 500),
-                preconditions: 'N/A',
-                steps: [{
-                    stepNumber: 1,
-                    action: 'Review generated content',
-                    expectedResult: 'Test case is valid'
-                }],
-                priority: 'Medium',
+                TestCaseId: 'TC001',
+                Test: 'Generated Test Case',
+                Expected_Result: response.substring(0, 500),
                 type: 'Functional'
             }];
         }
@@ -187,27 +185,38 @@ GENERATE TEST CASES NOW:`;
      */
     parseStructuredText(text) {
         const testCases = [];
-        const tcPattern = /(?:Test Case|TC)[\s#:]*(\d+)/gi;
-        const matches = [...text.matchAll(tcPattern)];
 
-        if (matches.length === 0) {
-            return testCases;
-        }
+        // Split by separator "---"
+        const blocks = text.split(/\n---\n/).filter(block => block.trim().length > 0);
 
-        matches.forEach((match, index) => {
-            const startIndex = match.index;
-            const endIndex = matches[index + 1]?.index || text.length;
-            const tcText = text.substring(startIndex, endIndex);
+        blocks.forEach(block => {
+            // Extract TestCaseId
+            const testCaseIdMatch = block.match(/TestCaseId:\s*(TC\d+)/i);
+            if (!testCaseIdMatch) return; // Skip if no TestCaseId found
 
-            testCases.push({
-                testCaseId: `TC${String(index + 1).padStart(3, '0')}`,
-                title: this.extractField(tcText, /title:?\s*(.+)/i) || 'Test Case',
-                description: this.extractField(tcText, /description:?\s*(.+)/i) || tcText.substring(0, 200),
-                preconditions: this.extractField(tcText, /preconditions?:?\s*(.+)/i) || 'N/A',
-                steps: this.extractSteps(tcText),
-                priority: this.extractField(tcText, /priority:?\s*(high|medium|low)/i) || 'Medium',
-                type: 'Functional'
-            });
+            const testCaseId = testCaseIdMatch[1];
+
+            // Extract Test description (single line after "Test:")
+            const testMatch = block.match(/Test:\s*(.+?)(?=\n|Expected Result:|$)/i);
+            const test = testMatch ? testMatch[1].trim() : '';
+
+            // Extract Expected Result (can be multi-line until Type: or end)
+            const expectedResultMatch = block.match(/Expected Result:\s*(.+?)(?=\nType:|$)/is);
+            const expectedResult = expectedResultMatch ? expectedResultMatch[1].trim() : '';
+
+            // Extract Type
+            const typeMatch = block.match(/Type:\s*(\w+)/i);
+            const type = typeMatch ? typeMatch[1] : 'Functional';
+
+            // Only add if we have the essential fields
+            if (testCaseId && test && expectedResult) {
+                testCases.push({
+                    TestCaseId: testCaseId,
+                    Test: test,
+                    Expected_Result: expectedResult,
+                    type: type
+                });
+            }
         });
 
         return testCases;

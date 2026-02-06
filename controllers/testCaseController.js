@@ -2,6 +2,10 @@ const jiraService = require('../services/jiraService');
 const ollamaService = require('../services/ollamaService');
 const TestCase = require('../models/TestCase');
 const GenerationHistory = require('../models/GenerationHistory');
+const { parseGitHubPRLink } = require('../utils/prLinkParser');
+const { buildPRContext } = require('../services/prContext.service');
+const { cleanPRContext } = require('../services/prContextCleaner.service');
+const { default: PrResponse } = require('../services/PrResponse');
 
 /**
  * Generate test cases from JIRA ticket
@@ -31,6 +35,33 @@ exports.generateTestCases = async (req, res) => {
         const normalizedData = jiraService.normalizeTicketData(jiraTicket);
         console.log("Normalized data:", normalizedData);
 
+        // Step3: PR data call
+
+        const prLink = "https://github.com/hdfclife-insurance/inspire-vo-loader-config-service/pull/219";
+
+        // 1. Parse PR link → owner, repo, prNumber
+        const { owner, repo, prNumber } = parseGitHubPRLink(prLink);
+
+
+        // 2. Build raw PR context from GitHub
+        const rawContext = await buildPRContext(owner, repo, prNumber);
+
+        // 3. Clean PR context (remove noise, normalize structure)
+        const cleanedContext = cleanPRContext(rawContext);
+
+
+        // Step 4: V2 Coder Call
+
+
+
+        const aiResponse =
+            await PrResponse.analyzePRBehavior(cleanedContext);
+
+        console.log("Pr respone:", aiResponse);
+
+
+
+
         // Step 3: Optional reasoning analysis
         let analysis = null;
         if (useReasoning) {
@@ -38,7 +69,7 @@ exports.generateTestCases = async (req, res) => {
         }
         console.log("Entering ollama Service")
         // Step 4: Generate test cases using Ollama
-        const result = await ollamaService.generateTestCases(normalizedData, model);
+        const result = await ollamaService.generateTestCases(normalizedData, aiResponse, model);
 
         console.log("Generated Test cases:", result);
 
