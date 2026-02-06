@@ -4,17 +4,9 @@ class PrResponse {
     constructor() {
         this.baseURL = process.env.OLLAMA_BASE_URL || "http://localhost:11434";
         this.model = process.env.OLLAMA_MODEL_CODER || "deepseek-coder-v2:lite";
-
-        console.log("OLLAMA BASE URL:", this.baseURL);
-        console.log("OLLAMA MODEL:", this.model);
     }
 
     async analyzePRBehavior(prContext) {
-        console.log("OLLAMA: Starting behavior analysis");
-        console.log(
-            "OLLAMA: Files received:",
-            prContext?.files?.length ?? 0
-        );
 
         const prompt = `
 You are a Senior Backend Engineer reviewing changes in a GitHub Pull Request.
@@ -71,8 +63,6 @@ RULES FOR OUTPUT:
   ["No behavioral change observed"]
 `;
 
-        console.log("OLLAMA: Sending prompt to model");
-
         let response;
         try {
             response = await axios.post(
@@ -89,29 +79,20 @@ RULES FOR OUTPUT:
                 }
             );
         } catch (err) {
-            console.error("OLLAMA: Request failed");
-            console.error(err.message);
+            console.error("OLLAMA: Request failed -", err.message);
             throw new Error("Failed to call Ollama model");
         }
-
-        console.log("OLLAMA: Raw response received");
 
         const rawText = response?.data?.response;
         if (!rawText) {
             throw new Error("Ollama returned an empty response");
         }
 
-        console.log("OLLAMA: Raw model output (first 500 chars):");
-        console.log(rawText.substring(0, 500));
-
         try {
             const parsed = JSON.parse(rawText);
-            console.log("OLLAMA: JSON parsed successfully");
             return parsed;
         } catch (err) {
-            console.error("OLLAMA: JSON parsing failed");
-            console.error("OLLAMA RAW OUTPUT:");
-            console.error(rawText);
+            console.error("OLLAMA: JSON parsing failed. Response:", rawText.substring(0, 500));
             throw new Error("Model did not return valid JSON");
         }
     }

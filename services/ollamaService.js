@@ -10,47 +10,71 @@ class OllamaService {
     /**
      * Generate test cases using DeepSeek Coder
      * @param {Object} jiraData - Normalized JIRA ticket data
+     * @param {Array} prAnalyses - Array of PR analysis objects
      * @param {string} model - Model to use (optional)
      * @returns {Promise<Object>} - Generated test cases
      */
-    async generateTestCases(jiraData, aiResponse, model = null) {
+    async generateTestCases(jiraData, prAnalyses, model = null) {
         const selectedModel = model || this.coderModel;
-        const prompt = this.buildPrompt(jiraData, aiResponse);
+        const maxRetries = 2;
+        let attempt = 0;
+        let lastResponse = '';
 
-        try {
-            const startTime = Date.now();
-            console.log("start time:", startTime)
+        while (attempt < maxRetries) {
+            attempt++;
+            
+            try {
+                const prompt = this.buildPrompt(jiraData, prAnalyses);
+                const startTime = Date.now();
 
-            const response = await axios.post(`${this.baseURL}/api/generate`, {
-                model: selectedModel,
-                prompt: prompt,
-                stream: false,
-                options: {
-                    temperature: 0.5,
-                    top_p: 0.85,
-                    num_predict: 2048
+                const response = await axios.post(`${this.baseURL}/api/generate`, {
+                    model: selectedModel,
+                    prompt: prompt,
+                    stream: false,
+                    options: {
+                        temperature: 0.2,
+                        top_p: 0.9,
+                        num_predict: 2048
+                    }
+                });
+
+                const generationTime = Date.now() - startTime;
+
+                // Parse the response
+                const generatedText = response.data.response;
+                lastResponse = generatedText;
+                const testCases = this.parseTestCases(generatedText);
+
+                // If we got test cases, return success
+                if (testCases && testCases.length > 0) {
+                    return {
+                        testCases,
+                        modelUsed: selectedModel,
+                        generationTime,
+                        rawResponse: generatedText
+                    };
                 }
-            });
 
-            const generationTime = Date.now() - startTime;
+                // If no test cases and we have retries left, try again
+                if (attempt < maxRetries) {
+                    console.log(`⚠️ No test cases generated, retrying (${attempt}/${maxRetries})...`);
+                    await new Promise(resolve => setTimeout(resolve, 2000));
+                }
 
-
-            // Parse the response
-            const generatedText = response.data.response;
-            console.log("---------- Generated from model --------:", generatedText)
-            const testCases = this.parseTestCases(generatedText);
-            console.log("Structure Test Cases:", testCases);
-
-            return {
-                testCases,
-                modelUsed: selectedModel,
-                generationTime,
-                rawResponse: generatedText
-            };
-        } catch (error) {
-            console.error('Error calling Ollama:', error.message);
-            throw new Error(`Failed to generate test cases: ${error.message}`);
+            } catch (error) {
+                console.error(`Error on attempt ${attempt}:`, error.message);
+                if (attempt >= maxRetries) throw error;
+            }
         }
+
+        // If we exhausted all retries, return what we have
+        console.error('Failed to generate test cases after all retries');
+        return {
+            testCases: [],
+            modelUsed: selectedModel,
+            generationTime: 0,
+            rawResponse: lastResponse
+        };
     }
 
     /**
@@ -75,14 +99,14 @@ Provide:
 
         try {
             const response = await axios.post(`${this.baseURL}/api/generate`, {
-                model: this.reasoningModel,
+                model: this.coderModel,
                 prompt: prompt,
                 stream: false
             });
 
             return {
                 analysis: response.data.response,
-                modelUsed: this.reasoningModel
+                modelUsed: this.coderModel
             };
         } catch (error) {
             console.error('Error in reasoning analysis:', error.message);
@@ -93,10 +117,29 @@ Provide:
     /**
      * Build prompt for test case generation
      * @param {Object} jiraData - Normalized JIRA ticket data
-     * @param {string} aiResponse - PR context and code changes
+     * @param {Array} prAnalyses - Array of PR analysis objects with PR context and code changes
      * @returns {string} - Formatted prompt
      */
-    buildPrompt(jiraData, aiResponse) {
+    buildPrompt(jiraData, prAnalyses) {
+        // Format PR contexts
+        let prContextSection = '';
+        
+        if (prAnalyses && Array.isArray(prAnalyses) && prAnalyses.length > 0) {
+            prContextSection = '**PR Context (Code Changes):**\n\n';
+            
+            prAnalyses.forEach((prAnalysis, index) => {
+                if (prAnalysis.error) {
+                    prContextSection += `PR #${index + 1} (${prAnalysis.prLink}):\n`;
+                    prContextSection += `ERROR: ${prAnalysis.error}\n\n`;
+                } else {
+                    prContextSection += `PR #${index + 1} - ${prAnalysis.owner}/${prAnalysis.repo}/pull/${prAnalysis.prNumber}:\n`;
+                    prContextSection += `${JSON.stringify(prAnalysis.analysis, null, 2)}\n\n`;
+                }
+            });
+        } else {
+            prContextSection = '**PR Context (Code Changes):**\nNo PR context available\n\n';
+        }
+
         return `You are a Senior QA Engineer generating System Integration Testing (SIT) test cases.
 
 GENERATE COMPREHENSIVE BUT NON-REPETITIVE test cases from the JIRA ticket and PR context.
@@ -109,6 +152,7 @@ CRITICAL RULES:
 5. Each validation rule gets ONE Positive, ONE Negative, and ONE Boundary test (if applicable)
 6. Be thorough but avoid redundancy
 7. Maximum 15-20 test cases total
+8. When multiple PRs are provided, consider all changes together
 
 TEST CASE CATEGORIES:
 - Positive: Valid inputs that should succeed
@@ -120,9 +164,7 @@ TEST CASE CATEGORIES:
 - Summary: ${jiraData.summary}
 - Description: ${jiraData.description}
 
-**PR Context (Code Changes):**
-${aiResponse || 'No PR context available'}
-
+${prContextSection}
 
 OUTPUT FORMAT (strictly follow):
 
@@ -165,14 +207,15 @@ GENERATE TEST CASES NOW:`;
             }
 
             // If no JSON found, try to parse structured text
-            return this.parseStructuredText(response);
+            const testCases = this.parseStructuredText(response);
+            return testCases;
         } catch (error) {
             console.error('Error parsing test cases:', error.message);
             // Return a fallback structure
             return [{
-                TestCaseId: 'TC001',
-                Test: 'Generated Test Case',
-                Expected_Result: response.substring(0, 500),
+                testCaseId: 'TC001',
+                test: 'Generated Test Case',
+                expectedResult: response.substring(0, 500),
                 type: 'Functional'
             }];
         }
@@ -186,23 +229,25 @@ GENERATE TEST CASES NOW:`;
     parseStructuredText(text) {
         const testCases = [];
 
-        // Split by separator "---"
-        const blocks = text.split(/\n---\n/).filter(block => block.trim().length > 0);
+        // Split by separator "---" or multiple newlines
+        const blocks = text.split(/\n---+\n|(?:\n\s*\n){2,}/).filter(block => block.trim().length > 0);
 
-        blocks.forEach(block => {
-            // Extract TestCaseId
+        blocks.forEach((block, index) => {
+            // Extract TestCaseId with more flexible matching
             const testCaseIdMatch = block.match(/TestCaseId:\s*(TC\d+)/i);
-            if (!testCaseIdMatch) return; // Skip if no TestCaseId found
+            if (!testCaseIdMatch) {
+                return; // Skip if no TestCaseId found
+            }
 
             const testCaseId = testCaseIdMatch[1];
 
-            // Extract Test description (single line after "Test:")
-            const testMatch = block.match(/Test:\s*(.+?)(?=\n|Expected Result:|$)/i);
-            const test = testMatch ? testMatch[1].trim() : '';
+            // Extract Test description - more flexible
+            const testMatch = block.match(/Test:\s*(.+?)(?=\nExpected Result:|$)/is);
+            const test = testMatch ? testMatch[1].trim().replace(/\n/g, ' ') : '';
 
-            // Extract Expected Result (can be multi-line until Type: or end)
+            // Extract Expected Result - more flexible
             const expectedResultMatch = block.match(/Expected Result:\s*(.+?)(?=\nType:|$)/is);
-            const expectedResult = expectedResultMatch ? expectedResultMatch[1].trim() : '';
+            const expectedResult = expectedResultMatch ? expectedResultMatch[1].trim().replace(/\n/g, ' ') : '';
 
             // Extract Type
             const typeMatch = block.match(/Type:\s*(\w+)/i);
@@ -211,9 +256,9 @@ GENERATE TEST CASES NOW:`;
             // Only add if we have the essential fields
             if (testCaseId && test && expectedResult) {
                 testCases.push({
-                    TestCaseId: testCaseId,
-                    Test: test,
-                    Expected_Result: expectedResult,
+                    testCaseId: testCaseId,
+                    test: test,
+                    expectedResult: expectedResult,
                     type: type
                 });
             }
