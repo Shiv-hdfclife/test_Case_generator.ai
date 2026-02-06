@@ -31,18 +31,28 @@ exports.generateTestCases = async (req, res) => {
         // Step 1: Fetch JIRA ticket
         const jiraTicket = await jiraService.fetchTicket(jiraTicketKey);
 
-        // Step 2: Normalize JIRA data
+        // Step 2: Normalize JIRA data (includes extracting PR links from description)
         const normalizedData = jiraService.normalizeTicketData(jiraTicket);
 
-        // Step 3: Process multiple PR links
+        // Step 3: Determine PR links to process
+        // Priority: 1) From JIRA description, 2) From request body
+        const prLinksToProcess = normalizedData.prLinks && normalizedData.prLinks.length > 0 
+            ? normalizedData.prLinks 
+            : (prLinks && Array.isArray(prLinks) ? prLinks : []);
+        
+        if (prLinksToProcess.length > 0) {
+            console.log(`📌 Using PR links from: ${normalizedData.prLinks && normalizedData.prLinks.length > 0 ? 'JIRA description' : 'request body'}`);
+        }
+
+        // Step 4: Process multiple PR links
         let allPRAnalyses = [];
         
-        if (prLinks && Array.isArray(prLinks) && prLinks.length > 0) {
-            console.log(`Processing ${prLinks.length} PR link(s)`);
+        if (prLinksToProcess && prLinksToProcess.length > 0) {
+            console.log(`Processing ${prLinksToProcess.length} PR link(s)`);
             
-            for (let i = 0; i < prLinks.length; i++) {
-                const prLink = prLinks[i];
-                console.log(`Processing PR ${i + 1}/${prLinks.length}: ${prLink}`);
+            for (let i = 0; i < prLinksToProcess.length; i++) {
+                const prLink = prLinksToProcess[i];
+                console.log(`Processing PR ${i + 1}/${prLinksToProcess.length}: ${prLink}`);
                 
                 try {
                     // 1. Parse PR link → owner, repo, prNumber
@@ -92,7 +102,7 @@ exports.generateTestCases = async (req, res) => {
                 }
             }
         } else {
-            console.log("No PR links provided, proceeding without PR context");
+            console.log("No PR links found in JIRA description or request body, proceeding without PR context");
         }
         
         console.log(`\n📊 Total PR analyses collected: ${allPRAnalyses.length}\n`);
@@ -100,16 +110,15 @@ exports.generateTestCases = async (req, res) => {
 
 
 
-        // Step 4: Optional reasoning analysis
+        // Step 5: Optional reasoning analysis
         let analysis = null;
         if (useReasoning) {
             analysis = await ollamaService.analyzeWithReasoning(normalizedData);
         }
         
-        // Step 5: Generate test cases using Ollama with all PR analyses
+        // Step 6: Generate test cases using Ollama with all PR analyses
         console.log('🤖 Generating test cases with AI model...');
         const result = await ollamaService.generateTestCases(normalizedData, allPRAnalyses, model);
-        console.log("Generated test cases:", result.testCases);
         console.log(`✅ Generated ${result.testCases.length} test cases\n`);
 
 
