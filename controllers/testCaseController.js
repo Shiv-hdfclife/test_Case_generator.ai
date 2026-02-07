@@ -37,31 +37,31 @@ exports.generateTestCases = async (req, res) => {
 
         // Step 3: Determine PR links to process
         // Priority: 1) From JIRA description, 2) From request body
-        const prLinksToProcess = normalizedData.prLinks && normalizedData.prLinks.length > 0 
-            ? normalizedData.prLinks 
+        const prLinksToProcess = normalizedData.prLinks && normalizedData.prLinks.length > 0
+            ? normalizedData.prLinks
             : (prLinks && Array.isArray(prLinks) ? prLinks : []);
-        
+
         if (prLinksToProcess.length > 0) {
             console.log(`📌 Using PR links from: ${normalizedData.prLinks && normalizedData.prLinks.length > 0 ? 'JIRA description' : 'request body'}`);
         }
 
         // Step 4: Process multiple PR links
         let allPRAnalyses = [];
-        
+
         if (prLinksToProcess && prLinksToProcess.length > 0) {
             console.log(`Processing ${prLinksToProcess.length} PR link(s)`);
-            
+
             for (let i = 0; i < prLinksToProcess.length; i++) {
                 const prLink = prLinksToProcess[i];
                 console.log(`Processing PR ${i + 1}/${prLinksToProcess.length}: ${prLink}`);
-                
+
                 try {
                     // 1. Parse PR link → owner, repo, prNumber
                     const { owner, repo, prNumber } = parseGitHubPRLink(prLink);
-                    
+
                     // 2. Build raw PR context from GitHub
                     const rawContext = await buildPRContext(owner, repo, prNumber);
-                    
+
                     // Log PR Changes (Patch/Diff)
                     console.log(`\n📝 PR #${prNumber} - Code Changes:`);
                     console.log('='.repeat(80));
@@ -73,17 +73,17 @@ exports.generateTestCases = async (req, res) => {
                         console.log('-'.repeat(80));
                     });
                     console.log('');
-                    
+
                     // 3. Clean PR context (remove noise, normalize structure)
                     const cleanedContext = cleanPRContext(rawContext);
-                    
+
                     // 4. Analyze PR behavior
                     const aiResponse = await PrResponse.analyzePRBehavior(cleanedContext);
-                    
+
                     console.log(`\n✅ PR #${prNumber} Analysis:`);
                     console.log(JSON.stringify(aiResponse, null, 2));
                     console.log('');
-                    
+
                     // 5. Add to collection with metadata
                     allPRAnalyses.push({
                         prLink: prLink,
@@ -99,13 +99,13 @@ exports.generateTestCases = async (req, res) => {
                         prLink: prLink,
                         error: prError.message,
                         analysis: null
-                    });
+                    });F
                 }
             }
         } else {
             console.log("No PR links found in JIRA description or request body, proceeding without PR context");
         }
-        
+
         console.log(`\n📊 Total PR analyses collected: ${allPRAnalyses.length}\n`);
 
         // Step 5: Optional reasoning analysis
@@ -113,7 +113,7 @@ exports.generateTestCases = async (req, res) => {
         if (useReasoning) {
             analysis = await ollamaService.analyzeWithReasoning(normalizedData);
         }
-        
+
         // Step 6: Generate test cases using Ollama with all PR analyses
         console.log('🤖 Generating test cases with AI model...');
         const result = await ollamaService.generateTestCases(normalizedData, allPRAnalyses, model);
@@ -126,7 +126,7 @@ exports.generateTestCases = async (req, res) => {
         const testCaseDoc = new TestCase({
             generationId: generationId,
             jiraTicketId: normalizedData.ticketId,
-            jiraTicketKey: normalizedData.ticketKey,    
+            jiraTicketKey: normalizedData.ticketKey,
             summary: normalizedData.summary,
             description: normalizedData.description,
             testCases: result.testCases,
